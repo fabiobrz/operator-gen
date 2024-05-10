@@ -6,6 +6,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Set;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.microsoft.kiota.ApiException;
 import com.microsoft.kiota.serialization.KiotaJsonSerialization;
 import com.microsoft.kiota.serialization.Parsable;
@@ -30,10 +33,6 @@ import io.vertx.ext.web.client.WebClientSession;
 import jakarta.annotation.PostConstruct;
 import jakarta.inject.Inject;
 
-import org.eclipse.microprofile.config.inject.ConfigProperty;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 public class MyOrganizationDependent extends PerResourcePollingDependentResource<Organization, org.operator.gen.v1alpha1.Organization> 
 implements Creator<Organization, org.operator.gen.v1alpha1.Organization>, Updater<Organization, org.operator.gen.v1alpha1.Organization>, Deleter<org.operator.gen.v1alpha1.Organization> {
 
@@ -43,20 +42,17 @@ implements Creator<Organization, org.operator.gen.v1alpha1.Organization>, Update
     Vertx vertx;
 	@Inject
 	HeaderAuthentication auth;
-	@ConfigProperty(name = "gitea.api.uri")
-	String giteaApiUri;
+	@Inject
+	BaseUrlProvider urlProvider;
 	
 	private ApiClient apiClient;
 	
-	
-	
 	@PostConstruct
 	public void initOauth() {
-		WebClient webClient = WebClient.create(vertx);
-		WebClientSession webClientSession = WebClientSession.create(webClient);
+		WebClientSession webClientSession = WebClientSession.create(WebClient.create(vertx));
 		auth.addAuthHeaders(webClientSession);
 		VertXRequestAdapter requestAdapter = new VertXRequestAdapter(webClientSession);
-		requestAdapter.setBaseUrl(giteaApiUri);
+		urlProvider.provide(requestAdapter);
 		apiClient = new ApiClient(requestAdapter);
 	}
 	
@@ -132,7 +128,14 @@ implements Creator<Organization, org.operator.gen.v1alpha1.Organization>, Update
 	public void delete(org.operator.gen.v1alpha1.Organization primary,
 			Context<org.operator.gen.v1alpha1.Organization> context) {
 		LOG.info("Deleting {}", primary.getMetadata().getName());
-		apiClient.orgs().byOrg(primary.getMetadata().getName()).delete();
+		try {
+			apiClient.orgs().byOrg(primary.getMetadata().getName()).delete();
+			LOG.info("Done");
+		} catch (ApiException e) {
+			LOG.error("Error deleting resource", e);
+			
+			throw e;
+		}
 	}
 
 }

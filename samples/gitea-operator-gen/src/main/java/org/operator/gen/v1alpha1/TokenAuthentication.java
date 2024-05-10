@@ -3,9 +3,9 @@ package org.operator.gen.v1alpha1;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
 import io.vertx.ext.web.client.WebClientSession;
-import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.Dependent;
 
-@ApplicationScoped
+@Dependent
 public class TokenAuthentication implements HeaderAuthentication{
 
 	@ConfigProperty(name = "gitea.api.token")
