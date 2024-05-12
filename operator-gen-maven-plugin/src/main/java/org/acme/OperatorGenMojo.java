@@ -123,7 +123,7 @@ public class OperatorGenMojo
 		ReconcilerGen reconciler = new ReconcilerGen(sourceDestinationFolder.toPath(), new Name(qualifierWithVersion, className));
 		reconciler.create();
 		
-		DependentGen dependent = new DependentGen(sourceDestinationFolder.toPath(), new Name(qualifierWithVersion, className), new Name(new Name("io.apisdk." + jsonsFile.getName() +".models"), className), methodCalls);
+		DependentGen dependent = new DependentGen(sourceDestinationFolder.toPath(), new Name(qualifierWithVersion, className), new Name(new Name("io.apisdk." + jsonsFile.getName() +".models"), className), methodCalls, mapper);
 		dependent.create();
 	}
     

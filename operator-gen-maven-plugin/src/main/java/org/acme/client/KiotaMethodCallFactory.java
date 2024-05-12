@@ -27,6 +27,14 @@ public class KiotaMethodCallFactory implements ApiClientMethodCallFactory {
 				.map(k -> toMethodCallExpression(apiClient, k, args));
 	}
 	
+	@Override
+	public Optional<MethodCallExpr> create(NameExpr apiClient, NodeList<Expression> args) {
+		Optional<Entry<String, PathItem>> createPath = mapper.createPath();
+		return createPath
+				.map(Entry::getKey)
+				.map(k -> new MethodCallExpr(toMethodCallExpression(apiClient, k, args), "post", new NodeList<>(args)));
+	}
+	
 	private MethodCallExpr toMethodCallExpression(Expression prev, String pathKey, NodeList<Expression> args) {		
 		if (pathKey.startsWith("/")) {
 			pathKey = pathKey.substring(1);
@@ -48,7 +56,6 @@ public class KiotaMethodCallFactory implements ApiClientMethodCallFactory {
 		} else {
 			return methodCallExpr;
 		}
-
 	}
 
 }

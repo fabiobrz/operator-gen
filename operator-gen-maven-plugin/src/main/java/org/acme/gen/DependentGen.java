@@ -1,37 +1,58 @@
 package org.acme.gen;
 
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.Collections;
+import java.util.Optional;
 import java.util.Set;
 
 import org.acme.client.ApiClientMethodCallFactory;
+import org.acme.read.crud.CrudMapper;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Modifier.Keyword;
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.expr.AssignExpr;
 import com.github.javaparser.ast.expr.AssignExpr.Operator;
+import com.github.javaparser.ast.expr.BinaryExpr;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
+import com.github.javaparser.ast.expr.IntegerLiteralExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.expr.Name;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.NullLiteralExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.SimpleName;
+import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.expr.TypeExpr;
 import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.CatchClause;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
+import com.github.javaparser.ast.stmt.IfStmt;
 import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.stmt.ThrowStmt;
+import com.github.javaparser.ast.stmt.TryStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.ast.type.TypeParameter;
 import com.github.javaparser.utils.SourceRoot;
+import com.microsoft.kiota.ApiException;
+import com.microsoft.kiota.serialization.Parsable;
+import com.microsoft.kiota.serialization.ParsableFactory;
+import com.microsoft.kiota.serialization.ParseNode;
 
+import io.fabric8.kubernetes.client.utils.Serialization;
 import io.javaoperatorsdk.operator.api.reconciler.Context;
 import io.javaoperatorsdk.operator.processing.dependent.Creator;
 import io.javaoperatorsdk.operator.processing.dependent.external.PerResourcePollingDependentResource;
 import io.kiota.http.vertx.VertXRequestAdapter;
+import io.kiota.serialization.json.JsonParseNodeFactory;
 import io.vertx.core.Vertx;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.client.WebClientSession;
@@ -48,12 +69,14 @@ public class DependentGen {
 	private final Name name;
 	private final Name resource;
 	private final ApiClientMethodCallFactory methodCalls;
+	private final CrudMapper mapper;
 
-	public DependentGen(Path path, Name name, Name resource, ApiClientMethodCallFactory methodCalls) {
+	public DependentGen(Path path, Name name, Name resource, ApiClientMethodCallFactory methodCalls, CrudMapper mapper) {
 		this.path = path;
 		this.name = name;
 		this.resource = resource;
 		this.methodCalls = methodCalls;
+		this.mapper = mapper;
 	}
 
 	public void create() {
@@ -70,7 +93,29 @@ public class DependentGen {
 		cu.addImport(Inject.class);
 		cu.addImport(Creator.class);
 		cu.addImport(Context.class);
+		cu.addImport(ApiException.class);
+		cu.addImport(Collections.class);
+		cu.addImport(Parsable.class);
+		cu.addImport(ParsableFactory.class);
+		cu.addImport(Serialization.class);
+		cu.addImport(ParseNode.class);
+		cu.addImport(JsonParseNodeFactory.class);
+		cu.addImport(ByteArrayInputStream.class);
+		cu.addImport(StandardCharsets.class);
 		cu.addImport(resource.getQualifier().map(Name::toString).orElse("").replace(".models", "") + ".ApiClient");
+		
+		
+		ClassOrInterfaceType createOptionType = new ClassOrInterfaceType(null, mapper.createPath()
+				.map(e -> e.getValue().getPOST().getRequestBody().getContent().getMediaType("application/json"))
+				.map(m -> m.getSchema().getRef())
+				.map(r -> r.substring(r.lastIndexOf("/") + 1, r.length()))
+				.map(t -> {
+					cu.addImport(resource.getQualifier().map(Name::toString).orElse("") + "." + t);
+					return t;
+				})
+				.orElse("CreateOption"));
+		
+		
 		ClassOrInterfaceType crdType = new ClassOrInterfaceType(null, name.toString());
 		ClassOrInterfaceType resourceType = new ClassOrInterfaceType(null, name.getIdentifier());
 		ClassOrInterfaceType dependentType = new ClassOrInterfaceType(null,
@@ -122,18 +167,62 @@ public class DependentGen {
 				.addAnnotation(Override.class).addParameter(crdType, "primaryResource").setType(setOfResourceType);
 		setFetchResourcesBody(setType, fetchResourcesMethod);
 		
+		
+		ClassOrInterfaceType parsableType = new ClassOrInterfaceType(null, Parsable.class.getSimpleName());
+		ClassOrInterfaceType parsableFactoryType = new ClassOrInterfaceType(null, new SimpleName(ParsableFactory.class.getSimpleName()), new NodeList<>(new TypeParameter("T")));
+		MethodDeclaration fromResource = clazz.addMethod("fromResource", Keyword.PRIVATE)
+			.addParameter(crdType, "primary")
+			.addParameter(parsableFactoryType, "parsableFactory")
+			.setType(new TypeParameter("T"))
+			.setTypeParameters(new NodeList<>(new TypeParameter("T", new NodeList<>(parsableType))));
+		ClassOrInterfaceType serializationType = new ClassOrInterfaceType(null, Serialization.class.getSimpleName());
+		ClassOrInterfaceType stringType = new ClassOrInterfaceType(null, String.class.getSimpleName());
+		ClassOrInterfaceType parseNodeType = new ClassOrInterfaceType(null, ParseNode.class.getSimpleName());
+		ClassOrInterfaceType parseNodeFactoryType = new ClassOrInterfaceType(null, JsonParseNodeFactory.class.getSimpleName());
+		ClassOrInterfaceType byteArrayInputStreamType = new ClassOrInterfaceType(null, ByteArrayInputStream.class.getSimpleName());
+		ClassOrInterfaceType stdCharsetsType = new ClassOrInterfaceType(null, StandardCharsets.class.getSimpleName());
+		
+		AssignExpr assignAsJson = new AssignExpr(new VariableDeclarationExpr(stringType, "primaryAsJson"), new MethodCallExpr(new TypeExpr(serializationType), "asJson", new NodeList<>(new NameExpr("primary"))), Operator.ASSIGN);
+		AssignExpr assignParseNode = new AssignExpr(new VariableDeclarationExpr(parseNodeType, "parseNode"), new MethodCallExpr(new ObjectCreationExpr(null, parseNodeFactoryType, new NodeList<>()), "getParseNode", new NodeList<>(new StringLiteralExpr("application/json"), new ObjectCreationExpr(null, byteArrayInputStreamType, new NodeList<>(new MethodCallExpr(new NameExpr("primaryAsJson"), "getBytes", new NodeList<>(new FieldAccessExpr(new TypeExpr(stdCharsetsType), "UTF_8"))))))), Operator.ASSIGN);
+		ReturnStmt parseNodeReturn = new ReturnStmt(new MethodCallExpr(new MethodCallExpr(new NameExpr("parseNode"), "getChildNode", new NodeList<>(new StringLiteralExpr("spec"))), "getObjectValue", new NodeList<>(new NameExpr("parsableFactory"))));
+		fromResource.setBody(new BlockStmt(new NodeList<>(new ExpressionStmt(assignAsJson), new ExpressionStmt(assignParseNode), parseNodeReturn)));
+		
+		
+		
 		ClassOrInterfaceType contextType = new ClassOrInterfaceType(null,
 				new SimpleName(Context.class.getSimpleName()),
 				new NodeList<>(crdType));
 		MethodDeclaration createMethod = clazz.addMethod("create", Keyword.PUBLIC)
 				.addAnnotation(Override.class)
 				.addParameter(resourceType, "desired")
-				.addParameter(crdType, "primaryResource")
+				.addParameter(crdType, "primary")
 				.addParameter(contextType, "context")
 				.setType(resourceType);
+		
 		//TODO We will add the real client method invocation
-		createMethod.setBody(new BlockStmt(new NodeList<>(new ReturnStmt(new NullLiteralExpr()))));
+		
+		
+		
+		Optional<MethodCallExpr> createCall = methodCalls.create(new NameExpr(FIELD_API_CLIENT),
+				new NodeList<>(new NameExpr("createOption")));
 
+		
+		
+		AssignExpr assignCreateOpt = new AssignExpr(new VariableDeclarationExpr(createOptionType, "createOption"), new MethodCallExpr(null, "fromResource", new NodeList<>(new NameExpr("primary"), new MethodReferenceExpr(new TypeExpr(createOptionType), new NodeList<>(),"createFromDiscriminatorValue"))),Operator.ASSIGN);
+		ReturnStmt createReturn = createCall
+			.map(m -> new ReturnStmt(m)).orElse(new ReturnStmt(new NullLiteralExpr()));
+
+		
+		createMethod.setBody(new BlockStmt(new NodeList<>(new ExpressionStmt(assignCreateOpt), createReturn)));
+
+		
+		MethodDeclaration desiredMethod = clazz.addMethod("desired", Keyword.PROTECTED)
+				.addAnnotation(Override.class)
+				.addParameter(crdType, "primary")
+				.addParameter(contextType, "context")
+				.setType(resourceType);
+		desiredMethod.setBody(new BlockStmt(new NodeList<>(new ReturnStmt(new MethodCallExpr(null, "fromResource", new NodeList<>(new NameExpr("primary"), new MethodReferenceExpr(new TypeExpr(resourceType), new NodeList<>(),"createFromDiscriminatorValue")))))));
+		
 		cu.setStorage(path.resolve(String.format("%s/%s.java",
 				name.getQualifier().map(Name::toString).map(n -> n.replace(".", "/")).orElse(""), className)));
 		SourceRoot dest = new SourceRoot(path);
@@ -146,7 +235,13 @@ public class DependentGen {
 				new NodeList<>(new MethodCallExpr(new MethodCallExpr(new NameExpr("primaryResource"), "getMetadata"),
 						"getName")))
 				.ifPresent(m -> fetchResourcesMethod
-						.setBody(new BlockStmt(new NodeList<>(new ReturnStmt(new MethodCallExpr(new TypeExpr(setType),
-								"of", new NodeList<>(new MethodCallExpr(m, "get"))))))));
+						.setBody(new BlockStmt(new NodeList<>(new TryStmt(new BlockStmt(new NodeList<>(new ReturnStmt(new MethodCallExpr(new TypeExpr(setType),
+								"of", new NodeList<>(new MethodCallExpr(m, "get")))))), new NodeList<>(catch404()), null)))));
+	}
+	
+	private CatchClause catch404() {
+		ClassOrInterfaceType apiExceptionType = new ClassOrInterfaceType(null, ApiException.class.getSimpleName());
+		ClassOrInterfaceType collectionsType = new ClassOrInterfaceType(null, Collections.class.getSimpleName());
+		return new CatchClause(new Parameter(apiExceptionType, "e"), new BlockStmt(new NodeList<>(new IfStmt(new BinaryExpr(new MethodCallExpr(new NameExpr("e"), "getResponseStatusCode"), new IntegerLiteralExpr("404"), com.github.javaparser.ast.expr.BinaryExpr.Operator.EQUALS), new ReturnStmt(new MethodCallExpr(new TypeExpr(collectionsType), "emptySet")), new ThrowStmt(new NameExpr("e"))))));
 	}
 }

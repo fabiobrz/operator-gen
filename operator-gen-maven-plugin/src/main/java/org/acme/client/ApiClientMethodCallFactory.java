@@ -11,4 +11,6 @@ public interface ApiClientMethodCallFactory {
 
 	Optional<MethodCallExpr> findById(NameExpr apiClient, NodeList<Expression> args);
 
+	Optional<MethodCallExpr> create(NameExpr apiClient, NodeList<Expression> args);
+
 }

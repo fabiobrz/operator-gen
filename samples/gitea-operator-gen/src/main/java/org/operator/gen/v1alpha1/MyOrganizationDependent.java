@@ -80,7 +80,11 @@ implements Creator<Organization, org.operator.gen.v1alpha1.Organization>, Update
 			LOG.info("Fetching org with name {}", primaryResource.getMetadata().getName());
 			return Set.of(apiClient.orgs().byOrg(primaryResource.getMetadata().getName()).get());
 		} catch (ApiException e) {
-			return Collections.emptySet();
+			if (e.getResponseStatusCode() == 404) {
+				return Collections.emptySet();
+			} else {
+				throw e;
+			}
 		}
 		//https://github.com/kiota-community/kiota-java-extra?tab=readme-ov-file#serialization-jackson
 	}
