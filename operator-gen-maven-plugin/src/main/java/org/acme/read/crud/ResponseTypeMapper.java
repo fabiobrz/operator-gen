@@ -99,7 +99,7 @@ public class ResponseTypeMapper implements CrudMapper {
 	 * corresponding DELETE e.g. /admin/users/{username}. The path for the delete is
 	 * assumed to start with that of the post. If there is more than one result,
 	 * e.g. /admin/users/{username}/orgs and /admin/users/{username} the shortest
-	 * path is returned. This is not perfect, for sake of simplicity. Might lead to
+	 * path is returned. This is not perfect, but only for sake of simplicity. Might lead to
 	 * wrong results in edge cases.
 	 * 
 	 * @return
@@ -126,8 +126,9 @@ public class ResponseTypeMapper implements CrudMapper {
 
 	@Override
 	public Optional<Entry<String, PathItem>> patchPath() {
-		return api.getPaths().getPathItems().entrySet().stream().filter(this::matchGetResponse)
-				.filter(e -> e.getValue().getPATCH() != null).findFirst();
+		Optional<Entry<String, PathItem>> patchPath = api.getPaths().getPathItems().entrySet().stream().filter(this::matchGetResponse)
+			.filter(e -> e.getValue().getPATCH() != null).findFirst();
+		return patchPath.or(() -> deletePath().filter(p -> p.getValue().getPATCH() != null));		
 	}
 
 	private List<String> extractPaths(Collection<Entry<String, PathItem>> paths) {

@@ -49,7 +49,9 @@ import com.microsoft.kiota.serialization.ParseNode;
 
 import io.fabric8.kubernetes.client.utils.Serialization;
 import io.javaoperatorsdk.operator.api.reconciler.Context;
+import io.javaoperatorsdk.operator.api.reconciler.dependent.Deleter;
 import io.javaoperatorsdk.operator.processing.dependent.Creator;
+import io.javaoperatorsdk.operator.processing.dependent.Updater;
 import io.javaoperatorsdk.operator.processing.dependent.external.PerResourcePollingDependentResource;
 import io.kiota.http.vertx.VertXRequestAdapter;
 import io.kiota.serialization.json.JsonParseNodeFactory;
@@ -92,6 +94,8 @@ public class DependentGen {
 		cu.addImport(VertXRequestAdapter.class);
 		cu.addImport(Inject.class);
 		cu.addImport(Creator.class);
+		cu.addImport(Updater.class);
+		cu.addImport(Deleter.class);
 		cu.addImport(Context.class);
 		cu.addImport(ApiException.class);
 		cu.addImport(Collections.class);
@@ -104,7 +108,7 @@ public class DependentGen {
 		cu.addImport(StandardCharsets.class);
 		cu.addImport(resource.getQualifier().map(Name::toString).orElse("").replace(".models", "") + ".ApiClient");
 		
-		
+		//TODO What to do if create cannot be found?
 		ClassOrInterfaceType createOptionType = new ClassOrInterfaceType(null, mapper.createPath()
 				.map(e -> e.getValue().getPOST().getRequestBody().getContent().getMediaType("application/json"))
 				.map(m -> m.getSchema().getRef())
@@ -114,7 +118,17 @@ public class DependentGen {
 					return t;
 				})
 				.orElse("CreateOption"));
-		
+		ClassOrInterfaceType updateOptionType = new ClassOrInterfaceType(null, mapper.patchPath()
+				.map(e -> e.getValue().getPATCH())
+				.map(p -> p.getRequestBody().getContent().getMediaType("application/json"))
+				.map(m -> m.getSchema().getRef())
+				.map(r -> r.substring(r.lastIndexOf("/") + 1, r.length()))
+				.map(t -> {
+					cu.addImport(resource.getQualifier().map(Name::toString).orElse("") + "." + t);
+					return t;
+				})
+				.orElse("UpdateOption"));
+		//TODO Also determine model type from ref
 		
 		ClassOrInterfaceType crdType = new ClassOrInterfaceType(null, name.toString());
 		ClassOrInterfaceType resourceType = new ClassOrInterfaceType(null, name.getIdentifier());
@@ -125,7 +139,12 @@ public class DependentGen {
 		ClassOrInterfaceType creatorType = new ClassOrInterfaceType(null,
 				new SimpleName(Creator.class.getSimpleName()),
 				new NodeList<>(resourceType, crdType));
-		
+		ClassOrInterfaceType updaterType = new ClassOrInterfaceType(null,
+				new SimpleName(Updater.class.getSimpleName()),
+				new NodeList<>(resourceType, crdType));
+		ClassOrInterfaceType deleterType = new ClassOrInterfaceType(null,
+				new SimpleName(Deleter.class.getSimpleName()),
+				new NodeList<>(crdType));
 		
 		ClassOrInterfaceType setOfResourceType = new ClassOrInterfaceType(null,
 				new SimpleName(Set.class.getSimpleName()), new NodeList<>(resourceType));
@@ -133,7 +152,10 @@ public class DependentGen {
 
 		ClassOrInterfaceDeclaration clazz = cu.addClass(className, Keyword.PUBLIC)
 				.addExtendedType(dependentType)
-				.addImplementedType(creatorType);
+				.addImplementedType(creatorType)
+				.addImplementedType(updaterType)
+				.addImplementedType(deleterType);
+				
 
 		clazz.addConstructor(Keyword.PUBLIC).setBody(new BlockStmt(new NodeList<>(new ExpressionStmt(
 				new MethodCallExpr("super", new FieldAccessExpr(new TypeExpr(resourceType), "class"))))));
@@ -181,13 +203,10 @@ public class DependentGen {
 		ClassOrInterfaceType parseNodeFactoryType = new ClassOrInterfaceType(null, JsonParseNodeFactory.class.getSimpleName());
 		ClassOrInterfaceType byteArrayInputStreamType = new ClassOrInterfaceType(null, ByteArrayInputStream.class.getSimpleName());
 		ClassOrInterfaceType stdCharsetsType = new ClassOrInterfaceType(null, StandardCharsets.class.getSimpleName());
-		
 		AssignExpr assignAsJson = new AssignExpr(new VariableDeclarationExpr(stringType, "primaryAsJson"), new MethodCallExpr(new TypeExpr(serializationType), "asJson", new NodeList<>(new NameExpr("primary"))), Operator.ASSIGN);
 		AssignExpr assignParseNode = new AssignExpr(new VariableDeclarationExpr(parseNodeType, "parseNode"), new MethodCallExpr(new ObjectCreationExpr(null, parseNodeFactoryType, new NodeList<>()), "getParseNode", new NodeList<>(new StringLiteralExpr("application/json"), new ObjectCreationExpr(null, byteArrayInputStreamType, new NodeList<>(new MethodCallExpr(new NameExpr("primaryAsJson"), "getBytes", new NodeList<>(new FieldAccessExpr(new TypeExpr(stdCharsetsType), "UTF_8"))))))), Operator.ASSIGN);
 		ReturnStmt parseNodeReturn = new ReturnStmt(new MethodCallExpr(new MethodCallExpr(new NameExpr("parseNode"), "getChildNode", new NodeList<>(new StringLiteralExpr("spec"))), "getObjectValue", new NodeList<>(new NameExpr("parsableFactory"))));
 		fromResource.setBody(new BlockStmt(new NodeList<>(new ExpressionStmt(assignAsJson), new ExpressionStmt(assignParseNode), parseNodeReturn)));
-		
-		
 		
 		ClassOrInterfaceType contextType = new ClassOrInterfaceType(null,
 				new SimpleName(Context.class.getSimpleName()),
@@ -198,23 +217,53 @@ public class DependentGen {
 				.addParameter(crdType, "primary")
 				.addParameter(contextType, "context")
 				.setType(resourceType);
-		
-		//TODO We will add the real client method invocation
-		
-		
-		
 		Optional<MethodCallExpr> createCall = methodCalls.create(new NameExpr(FIELD_API_CLIENT),
 				new NodeList<>(new NameExpr("createOption")));
-
-		
-		
 		AssignExpr assignCreateOpt = new AssignExpr(new VariableDeclarationExpr(createOptionType, "createOption"), new MethodCallExpr(null, "fromResource", new NodeList<>(new NameExpr("primary"), new MethodReferenceExpr(new TypeExpr(createOptionType), new NodeList<>(),"createFromDiscriminatorValue"))),Operator.ASSIGN);
 		ReturnStmt createReturn = createCall
 			.map(m -> new ReturnStmt(m)).orElse(new ReturnStmt(new NullLiteralExpr()));
-
-		
 		createMethod.setBody(new BlockStmt(new NodeList<>(new ExpressionStmt(assignCreateOpt), createReturn)));
 
+		MethodDeclaration updateMethod = clazz.addMethod("update", Keyword.PUBLIC)
+				.addAnnotation(Override.class)
+				.addParameter(resourceType, "actual")
+				.addParameter(resourceType, "desired")
+				.addParameter(crdType, "primary")
+				.addParameter(contextType, "context")
+				.setType(resourceType);
+		Optional<MethodCallExpr> updateCall = methodCalls.update(new NameExpr(FIELD_API_CLIENT),
+				new NodeList<>(new MethodCallExpr(new MethodCallExpr(new NameExpr("primary"), "getMetadata"),
+						"getName")),
+				new NodeList<>(new NameExpr("editOption")));
+		AssignExpr assignUpdateOpt = new AssignExpr(new VariableDeclarationExpr(updateOptionType, "editOption"), new MethodCallExpr(null, "fromResource", new NodeList<>(new NameExpr("primary"), new MethodReferenceExpr(new TypeExpr(updateOptionType), new NodeList<>(),"createFromDiscriminatorValue"))),Operator.ASSIGN);
+		ReturnStmt updateReturn = updateCall
+				.map(m -> new ReturnStmt(m)).orElse(new ReturnStmt(new NullLiteralExpr()));
+		updateMethod.setBody(new BlockStmt(new NodeList<>(new ExpressionStmt(assignUpdateOpt), updateReturn)));
+		
+		
+		/*@Override
+		public void delete(org.operator.gen.v1alpha1.Organization primary,
+				Context<org.operator.gen.v1alpha1.Organization> context) {
+			LOG.info("Deleting {}", primary.getMetadata().getName());
+			try {
+				apiClient.orgs().byOrg(primary.getMetadata().getName()).delete();
+				LOG.info("Done");
+			} catch (ApiException e) {
+				LOG.error("Error deleting resource", e);
+				
+				throw e;
+			}
+		}*/
+		MethodDeclaration deleteMethod = clazz.addMethod("delete", Keyword.PUBLIC)
+				.addAnnotation(Override.class)
+				.addParameter(crdType, "primary")
+				.addParameter(contextType, "context");
+		methodCalls.delete(new NameExpr(FIELD_API_CLIENT),
+				new NodeList<>(new MethodCallExpr(new MethodCallExpr(new NameExpr("primary"), "getMetadata"),
+						"getName")))
+		.ifPresent(m -> deleteMethod.setBody(new BlockStmt(new NodeList<>(new ExpressionStmt(m)))));
+	
+		
 		
 		MethodDeclaration desiredMethod = clazz.addMethod("desired", Keyword.PROTECTED)
 				.addAnnotation(Override.class)
@@ -222,7 +271,7 @@ public class DependentGen {
 				.addParameter(contextType, "context")
 				.setType(resourceType);
 		desiredMethod.setBody(new BlockStmt(new NodeList<>(new ReturnStmt(new MethodCallExpr(null, "fromResource", new NodeList<>(new NameExpr("primary"), new MethodReferenceExpr(new TypeExpr(resourceType), new NodeList<>(),"createFromDiscriminatorValue")))))));
-		
+	
 		cu.setStorage(path.resolve(String.format("%s/%s.java",
 				name.getQualifier().map(Name::toString).map(n -> n.replace(".", "/")).orElse(""), className)));
 		SourceRoot dest = new SourceRoot(path);
