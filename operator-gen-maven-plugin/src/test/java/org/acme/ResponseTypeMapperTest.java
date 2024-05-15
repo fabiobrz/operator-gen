@@ -117,7 +117,7 @@ class ResponseTypeMapperTest {
 		assertNotNull(byIdPath.get().getValue().getGET());
 		System.out.println("GetById path for " + modelName + " is " + byIdPath.get().getKey());
 		Schema schema = byIdPath.get().getValue().getGET().getResponses().getAPIResponse("200").getContent().getMediaType(analyzer.getResponseMediaType()).getSchema();
-		assertEquals(analyzer.getSchema().getRef(), schema.getRef());
+		assertEquals(analyzer.getByIdSchema().getRef(), schema.getRef());
 	}
 	
 	@ParameterizedTest

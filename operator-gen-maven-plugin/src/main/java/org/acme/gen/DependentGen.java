@@ -108,7 +108,6 @@ public class DependentGen {
 		cu.addImport(StandardCharsets.class);
 		cu.addImport(resource.getQualifier().map(Name::toString).orElse("").replace(".models", "") + ".ApiClient");
 		
-		//TODO What to do if create cannot be found?
 		ClassOrInterfaceType createOptionType = new ClassOrInterfaceType(null, mapper.createPath()
 				.map(e -> e.getValue().getPOST().getRequestBody().getContent().getMediaType("application/json"))
 				.map(m -> m.getSchema().getRef())
@@ -118,6 +117,7 @@ public class DependentGen {
 					return t;
 				})
 				.orElse("CreateOption"));
+		
 		ClassOrInterfaceType updateOptionType = new ClassOrInterfaceType(null, mapper.patchPath()
 				.map(e -> e.getValue().getPATCH())
 				.map(p -> p.getRequestBody().getContent().getMediaType("application/json"))

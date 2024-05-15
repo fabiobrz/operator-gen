@@ -113,7 +113,7 @@ public class OperatorGenMojo
 			if (!Files.exists(crdResOutputDir)) {
 				Files.createDirectory(crdResOutputDir);
 			}
-			CrdResourceGen resourceGen = new CrdResourceGen(crdResOutputDir.resolve(responseType + ".yaml"), jsonsFile.toPath(), crdName);
+			CrdResourceGen resourceGen = new CrdResourceGen(crdResOutputDir.resolve(responseType + ".yaml"), jsonsFile.toPath(), crdName, mapper);
 			resourceGen.create();
 		} catch (IOException e) {
 			LOG.error(String.format("Error processing response type '%s'", responseType), e);

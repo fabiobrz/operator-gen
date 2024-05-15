@@ -10,8 +10,10 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import org.eclipse.microprofile.openapi.models.OpenAPI;
+import org.eclipse.microprofile.openapi.models.Operation;
 import org.eclipse.microprofile.openapi.models.PathItem;
 import org.eclipse.microprofile.openapi.models.media.Schema;
+import org.eclipse.microprofile.openapi.models.parameters.RequestBody;
 
 public class ResponseTypeMapper implements CrudMapper {
 
@@ -36,19 +38,42 @@ public class ResponseTypeMapper implements CrudMapper {
 	public String getResponseMediaType() {
 		return MEDIATYPE_JSON;
 	}
+	
+	@Override
+	public Schema getByIdSchema() {
+		return schema;
+	}
 
 	private Optional<Schema> getSchema(String modelName) {
 		return Optional.ofNullable(api.getComponents().getResponses().get(modelName).getContent()
 				.getMediaType(getResponseMediaType()).getSchema());
 	}
 
-	public Schema getSchema() {
-		return schema;
-	}
-
 	@Override
 	public Optional<Entry<String, PathItem>> getByIdPath() {
 		return byIdPath(this::matchGetResponse);
+	}
+	
+	@Override
+	public Optional<Schema> getCreateSchema() {
+		return createPath()
+				.map(Entry::getValue)
+				.map(PathItem::getPOST)
+				.map(Operation::getRequestBody)
+				.map(RequestBody::getContent)
+				.map(c -> c.getMediaType(MEDIATYPE_JSON))
+				.map(m -> m.getSchema());
+	}
+	
+	@Override
+	public Optional<Schema> getUpdateSchema() {
+		return patchPath()
+				.map(Entry::getValue)
+				.map(PathItem::getPATCH)
+				.map(Operation::getRequestBody)
+				.map(RequestBody::getContent)
+				.map(c -> c.getMediaType(MEDIATYPE_JSON))
+				.map(m -> m.getSchema());
 	}
 
 	private Optional<Entry<String, PathItem>> byIdPath(Predicate<Entry<String, PathItem>> filter) {
