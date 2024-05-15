@@ -6,6 +6,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -61,7 +63,8 @@ public class CrdResourceGen {
 	}
 
 	private String reverseQualifier(String qualifier) {
-		return Arrays.asList(qualifier.split("\\.")).reversed().stream().collect(Collectors.joining("."));
+		List<String> qualifierList = Arrays.asList(qualifier.split("\\."));
+		Collections.reverse(qualifierList);
+		return qualifierList.stream().collect(Collectors.joining("."));
 	}
-
 }
