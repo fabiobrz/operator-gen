@@ -120,10 +120,12 @@ public class OperatorGenMojo
 		}
 		
 		Name qualifierWithVersion = new Name(basePackage + "." + crdVersion);
-		ReconcilerGen reconciler = new ReconcilerGen(sourceDestinationFolder.toPath(), new Name(qualifierWithVersion, className));
+		Name resource = new Name(new Name("io.apisdk." + jsonsFile.getName() +".models"), className);
+		ReconcilerGen reconciler = new ReconcilerGen(sourceDestinationFolder.toPath(), new Name(qualifierWithVersion, className), resource);
 		reconciler.create();
 		
-		DependentGen dependent = new DependentGen(sourceDestinationFolder.toPath(), new Name(qualifierWithVersion, className), new Name(new Name("io.apisdk." + jsonsFile.getName() +".models"), className), methodCalls, mapper);
+		
+		DependentGen dependent = new DependentGen(sourceDestinationFolder.toPath(), new Name(qualifierWithVersion, className), resource, methodCalls, mapper);
 		dependent.create();
 	}
     
