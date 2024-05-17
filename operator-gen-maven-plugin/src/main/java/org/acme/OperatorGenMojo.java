@@ -51,6 +51,9 @@ public class OperatorGenMojo
 	@Parameter(defaultValue = "${project}", readonly = true, required = true)
     private MavenProject project;
 	
+	@Parameter(property = "schemas", required = false)
+	private List<String> schemas = null;
+	
     /**
      * Location of the generated source code.
      */
@@ -95,8 +98,7 @@ public class OperatorGenMojo
 	private void pocessOpenApiFile(File jsonsFile) {
 		OpenAPI openApiDoc = loadOpenApiDoc(jsonsFile, config.getConfig());
 		ResponseTypeReader reader = new ResponseTypeReader(openApiDoc);
-		List<String> responses = config.getResponses();
-		reader.getResponseTypeNames(e -> responses.contains(e.getKey())).forEach(r -> 
+		reader.getResponseTypeNames(e -> schemas.contains(e.getKey())).forEach(r -> 
 			processResponseType(openApiDoc, jsonsFile, r)
 		);
 	}

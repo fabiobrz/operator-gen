@@ -103,9 +103,13 @@
         <pluginManagement>
             <plugins>
                 <plugin>
-                <groupId>org.acme</groupId>
-                <artifactId>operator-gen-maven-plugin</artifactId>
-                <version>1.0-SNAPSHOT</version>
+	                <groupId>org.acme</groupId>
+	                <artifactId>operator-gen-maven-plugin</artifactId>
+	                <version>1.0-SNAPSHOT</version>
+                	 <configuration>
+			          <schemas>Organization,User</schemas>
+			          <!-- .. .-->
+			        </configuration>
                 </plugin>
             </plugins>
         </pluginManagement>
