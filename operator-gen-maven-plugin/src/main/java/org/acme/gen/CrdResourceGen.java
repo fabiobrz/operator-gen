@@ -8,6 +8,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map.Entry;
@@ -72,6 +73,7 @@ public class CrdResourceGen {
 							.withStorage(true).withNewSchema().editOrNewOpenAPIV3Schema()
 							.addToProperties("spec", specBuilder.build())
 							.addToProperties("status", statusBuilder.build())
+							
 							.endOpenAPIV3Schema().and().build())
 					.endSpec().build();
 			Files.write(path, Serialization.asYaml(customResourceDefinition).getBytes(StandardCharsets.UTF_8),
@@ -87,7 +89,7 @@ public class CrdResourceGen {
 			JsonNode crtSchema = jsonNodeTree.at(removeLeadingHash(crtSch.getRef()));
 			JsonNode uptSchema = jsonNodeTree.at(removeLeadingHash(uptSch.getRef()));
 			Set<Entry<String, JsonNode>> unionOfFields = unionOfFields(crtSchema.get("properties"), uptSchema.get("properties"));
-			mapSpecProperties(specBuilder, unionOfFields);
+			mapSpecProperties(specBuilder, unionOfFields, jsonNodeTree);
 			mapStatusProperties(statusBuilder, unionOfFields, jsonNodeTree);
 		}));
 	}
@@ -100,16 +102,63 @@ public class CrdResourceGen {
 		}
 	}
 
-	private void mapSpecProperties(JSONSchemaPropsBuilder specBuilder, Set<Entry<String, JsonNode>> unionOfFields) {
-		unionOfFields.stream()
-				.forEach(f -> specBuilder.addToProperties(f.getKey(),
-						new JSONSchemaPropsBuilder().withType(f.getValue().get("type").asText()).build()));
+	private void mapSpecProperties(JSONSchemaPropsBuilder specBuilder, Set<Entry<String, JsonNode>> unionOfFields, JsonNode jsonNodeTree) {
+		mapSpecProperties(specBuilder, unionOfFields, jsonNodeTree, new HashSet<>());
+	}
+	
+	private void mapSpecProperties(JSONSchemaPropsBuilder specBuilder, Set<Entry<String, JsonNode>> unionOfFields, JsonNode jsonNodeTree, Set<JsonNode> visitedNodes) {
+		mapPrimitiveTypeProps(specBuilder, unionOfFields);
+		mapObjectTypeSpecProps(specBuilder, jsonNodeTree, visitedNodes, unionOfFields);
 	}
 	
 	private void mapStatusProperties(JSONSchemaPropsBuilder statusBuilder, Set<Entry<String, JsonNode>> unionOfFields,
 			JsonNode jsonNodeTree) {
-		fieldsOfNotIn(jsonNodeTree.at(removeLeadingHash(mapper.getByIdSchema().getRef())).get("properties"), unionOfFields.stream().map(Entry::getKey).toList())
-				.forEach(f -> statusBuilder.addToProperties(f.getKey(),
+		mapStatusProperties(statusBuilder, unionOfFields, jsonNodeTree, new HashSet<>());
+	}
+	
+	private void mapStatusProperties(JSONSchemaPropsBuilder statusBuilder, Set<Entry<String, JsonNode>> unionOfFields,
+			JsonNode jsonNodeTree, Set<JsonNode> visitedNodes) {
+		Set<Entry<String, JsonNode>> fieldsOfNotIn = fieldsOfNotIn(jsonNodeTree.at(removeLeadingHash(mapper.getByIdSchema().getRef())).get("properties"), unionOfFields.stream().map(Entry::getKey).toList());
+		mapPrimitiveTypeProps(statusBuilder, fieldsOfNotIn);
+		mapObjectTypeStatusProps(statusBuilder, jsonNodeTree, visitedNodes, fieldsOfNotIn);
+	}
+
+	private void mapObjectTypeStatusProps(JSONSchemaPropsBuilder statusBuilder, JsonNode jsonNodeTree,
+			Set<JsonNode> visitedNodes, Set<Entry<String, JsonNode>> fields) {
+		fields.stream()
+			.filter(f -> f.getValue().get("$ref") != null)
+			.forEach(f -> {
+				JsonNode schema = jsonNodeTree.at(removeLeadingHash(f.getValue().get("$ref").asText()));
+				if(!visitedNodes.contains(schema)) {
+					visitedNodes.add(schema);
+					JSONSchemaPropsBuilder objectTypeBuilder = new JSONSchemaPropsBuilder();
+					mapStatusProperties(objectTypeBuilder, fields(schema), jsonNodeTree, visitedNodes);
+					statusBuilder.addToProperties(f.getKey(),
+							objectTypeBuilder.withType("object").build());
+				}
+			});
+	}
+	
+	private void mapObjectTypeSpecProps(JSONSchemaPropsBuilder statusBuilder, JsonNode jsonNodeTree,
+			Set<JsonNode> visitedNodes, Set<Entry<String, JsonNode>> fields) {
+		fields.stream()
+			.filter(f -> f.getValue().get("$ref") != null)
+			.forEach(f -> {
+				JsonNode schema = jsonNodeTree.at(removeLeadingHash(f.getValue().get("$ref").asText()));
+				if(!visitedNodes.contains(schema)) {
+					visitedNodes.add(schema);
+					JSONSchemaPropsBuilder objectTypeBuilder = new JSONSchemaPropsBuilder();
+					mapStatusProperties(objectTypeBuilder, fields(schema), jsonNodeTree, visitedNodes);
+					statusBuilder.addToProperties(f.getKey(),
+							objectTypeBuilder.withType("object").build());
+				}
+			});
+	}
+
+	private void mapPrimitiveTypeProps(JSONSchemaPropsBuilder builder, Set<Entry<String, JsonNode>> fields) {
+		fields.stream()
+			.filter(f -> f.getValue().get("type") != null)
+			.forEach(f -> builder.addToProperties(f.getKey(),
 						new JSONSchemaPropsBuilder().withType(f.getValue().get("type").asText()).build()));
 	}
 		
@@ -119,6 +168,12 @@ public class CrdResourceGen {
 		a.fields().forEachRemaining(union::add);
 		b.fields().forEachRemaining(union::add);
 		return union;
+	}
+	
+	private Set<Entry<String, JsonNode>> fields(JsonNode a) {
+		Set<Entry<String, JsonNode>> fields = new LinkedHashSet<>();
+		a.fields().forEachRemaining(fields::add);
+		return fields;
 	}
 	
 	private Set<Entry<String, JsonNode>> fieldsOfNotIn(JsonNode a, Collection<String> b) {
