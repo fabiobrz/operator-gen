@@ -40,6 +40,7 @@ import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.stmt.ThrowStmt;
 import com.github.javaparser.ast.stmt.TryStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
+import com.github.javaparser.ast.type.Type;
 import com.github.javaparser.ast.type.TypeParameter;
 import com.github.javaparser.utils.SourceRoot;
 import com.microsoft.kiota.ApiException;
@@ -72,13 +73,21 @@ public class DependentGen {
 	private final Name resource;
 	private final ApiClientMethodCallFactory methodCalls;
 	private final CrudMapper mapper;
-
+	private final ClassOrInterfaceType contextType;
+	private final ClassOrInterfaceType crdType;
+	private final ClassOrInterfaceType resourceType;
+	
 	public DependentGen(Path path, Name name, Name resource, ApiClientMethodCallFactory methodCalls, CrudMapper mapper) {
 		this.path = path;
 		this.name = name;
 		this.resource = resource;
 		this.methodCalls = methodCalls;
 		this.mapper = mapper;
+		crdType = new ClassOrInterfaceType(null, name.toString());
+		contextType = new ClassOrInterfaceType(null,
+				new SimpleName(Context.class.getSimpleName()),
+				new NodeList<>(crdType));
+		resourceType = new ClassOrInterfaceType(null, name.getIdentifier());
 	}
 
 	public void create() {
@@ -93,9 +102,6 @@ public class DependentGen {
 		cu.addImport(WebClient.class);
 		cu.addImport(VertXRequestAdapter.class);
 		cu.addImport(Inject.class);
-		cu.addImport(Creator.class);
-		cu.addImport(Updater.class);
-		cu.addImport(Deleter.class);
 		cu.addImport(Context.class);
 		cu.addImport(ApiException.class);
 		cu.addImport(Collections.class);
@@ -107,38 +113,11 @@ public class DependentGen {
 		cu.addImport(ByteArrayInputStream.class);
 		cu.addImport(StandardCharsets.class);
 		cu.addImport(resource.getQualifier().map(Name::toString).orElse("").replace(".models", "") + ".ApiClient");
-		
-		ClassOrInterfaceType createOptionType = new ClassOrInterfaceType(null, mapper.createPath()
-				.map(e -> e.getValue().getPOST().getRequestBody().getContent().getMediaType("application/json"))
-				.map(m -> m.getSchema().getRef())
-				.map(r -> r.substring(r.lastIndexOf("/") + 1, r.length()))
-				.map(t -> {
-					cu.addImport(resource.getQualifier().map(Name::toString).orElse("") + "." + t);
-					return t;
-				})
-				.orElse("CreateOption"));
-		
-		ClassOrInterfaceType updateOptionType = new ClassOrInterfaceType(null, mapper.patchPath()
-				.map(e -> e.getValue().getPATCH())
-				.map(p -> p.getRequestBody().getContent().getMediaType("application/json"))
-				.map(m -> m.getSchema().getRef())
-				.map(r -> r.substring(r.lastIndexOf("/") + 1, r.length()))
-				.map(t -> {
-					cu.addImport(resource.getQualifier().map(Name::toString).orElse("") + "." + t);
-					return t;
-				})
-				.orElse("UpdateOption"));
-		//TODO Also determine model type from ref
-		
-		ClassOrInterfaceType crdType = new ClassOrInterfaceType(null, name.toString());
-		ClassOrInterfaceType resourceType = new ClassOrInterfaceType(null, name.getIdentifier());
+
 		ClassOrInterfaceType dependentType = new ClassOrInterfaceType(null,
 				new SimpleName(PerResourcePollingDependentResource.class.getSimpleName()),
 				new NodeList<>(resourceType, crdType));
 		
-		ClassOrInterfaceType creatorType = new ClassOrInterfaceType(null,
-				new SimpleName(Creator.class.getSimpleName()),
-				new NodeList<>(resourceType, crdType));
 		ClassOrInterfaceType updaterType = new ClassOrInterfaceType(null,
 				new SimpleName(Updater.class.getSimpleName()),
 				new NodeList<>(resourceType, crdType));
@@ -146,26 +125,73 @@ public class DependentGen {
 				new SimpleName(Deleter.class.getSimpleName()),
 				new NodeList<>(crdType));
 		
+		ClassOrInterfaceDeclaration clazz = cu.addClass(className, Keyword.PUBLIC)
+				.addExtendedType(dependentType)
+				.addImplementedType(updaterType)
+				.addImplementedType(deleterType);
+		
+		fields(clazz);
+		constructor(clazz);
+		initClientMethod(clazz);
+		desiredMethod(clazz);
+		fetchMethod(clazz);
+		mapper.createPath()
+				.map(e -> e.getValue().getPOST().getRequestBody().getContent().getMediaType("application/json"))
+				.map(m -> m.getSchema().getRef())
+				.map(r -> r.substring(r.lastIndexOf("/") + 1, r.length()))
+				.ifPresent(t -> 
+					createMethod(cu, clazz, new ClassOrInterfaceType(null, t))
+				);
+		mapper.patchPath()
+				.map(e -> e.getValue().getPATCH())
+				.map(p -> p.getRequestBody().getContent().getMediaType("application/json"))
+				.map(m -> m.getSchema().getRef())
+				.map(r -> r.substring(r.lastIndexOf("/") + 1, r.length()))
+				.ifPresent(t -> 
+					updateMethod(cu, clazz, new ClassOrInterfaceType(null, t))
+				);
+		deleteMethod(cu, clazz);
+		fromResourceMethod(clazz);
+		cu.setStorage(path.resolve(String.format("%s/%s.java",
+				name.getQualifier().map(Name::toString).map(n -> n.replace(".", "/")).orElse(""), className)));
+		SourceRoot dest = new SourceRoot(path);
+		dest.add(cu);
+		dest.saveAll();
+	}
+
+	private void fetchMethod(ClassOrInterfaceDeclaration clazz) {
 		ClassOrInterfaceType setOfResourceType = new ClassOrInterfaceType(null,
 				new SimpleName(Set.class.getSimpleName()), new NodeList<>(resourceType));
 		ClassOrInterfaceType setType = new ClassOrInterfaceType(null, Set.class.getSimpleName());
 
-		ClassOrInterfaceDeclaration clazz = cu.addClass(className, Keyword.PUBLIC)
-				.addExtendedType(dependentType)
-				.addImplementedType(creatorType)
-				.addImplementedType(updaterType)
-				.addImplementedType(deleterType);
-				
 
-		clazz.addConstructor(Keyword.PUBLIC).setBody(new BlockStmt(new NodeList<>(new ExpressionStmt(
-				new MethodCallExpr("super", new FieldAccessExpr(new TypeExpr(resourceType), "class"))))));
+		MethodDeclaration fetchResourcesMethod = clazz.addMethod("fetchResources", Keyword.PUBLIC)
+				.addAnnotation(Override.class).addParameter(crdType, "primaryResource").setType(setOfResourceType);
+		setFetchResourcesBody(setType, fetchResourcesMethod);
+	}
 
-		clazz.addField(Vertx.class, FIELD_NAME_VERTX).addAnnotation(Inject.class);
-		clazz.addField("ApiClient", FIELD_API_CLIENT, Keyword.PRIVATE);
-		clazz.addField("HeaderAuthentication", FIELD_AUTHENTICATION).addAnnotation(Inject.class);
-		clazz.addField("BaseUrlProvider", "urlProvider").addAnnotation(Inject.class);
+	private void deleteMethod(CompilationUnit cu, ClassOrInterfaceDeclaration clazz) {
+		cu.addImport(Deleter.class);
+		MethodDeclaration deleteMethod = clazz.addMethod("delete", Keyword.PUBLIC)
+				.addAnnotation(Override.class)
+				.addParameter(crdType, "primary")
+				.addParameter(contextType, "context");
+		methodCalls.delete(new NameExpr(FIELD_API_CLIENT),
+				new NodeList<>(new MethodCallExpr(new MethodCallExpr(new NameExpr("primary"), "getMetadata"),
+						"getName")))
+		.ifPresent(m -> deleteMethod.setBody(new BlockStmt(new NodeList<>(new ExpressionStmt(m)))));
+	}
 
-	
+	private void desiredMethod(ClassOrInterfaceDeclaration clazz) {
+		MethodDeclaration desiredMethod = clazz.addMethod("desired", Keyword.PROTECTED)
+				.addAnnotation(Override.class)
+				.addParameter(crdType, "primary")
+				.addParameter(contextType, "context")
+				.setType(resourceType);
+		desiredMethod.setBody(new BlockStmt(new NodeList<>(new ReturnStmt(new MethodCallExpr(null, "fromResource", new NodeList<>(new NameExpr("primary"), new MethodReferenceExpr(new TypeExpr(resourceType), new NodeList<>(),"createFromDiscriminatorValue")))))));
+	}
+
+	private void initClientMethod(ClassOrInterfaceDeclaration clazz) {
 		MethodDeclaration initClientMethod = clazz.addMethod("initClient", Keyword.PUBLIC)
 				.addAnnotation(PostConstruct.class);
 		
@@ -183,13 +209,62 @@ public class DependentGen {
 		initClientStatements.add(new ExpressionStmt(new MethodCallExpr(new NameExpr("urlProvider"), "provide", new NodeList<>(new NameExpr("requestAdapter")))));
 		initClientStatements.add(new ExpressionStmt(new AssignExpr(new NameExpr(FIELD_API_CLIENT), new ObjectCreationExpr(null, apiClientType, new NodeList<>(new NameExpr("requestAdapter"))), Operator.ASSIGN)));
 		initClientMethod.setBody(new BlockStmt(initClientStatements));
+	}
+
+	private void fields(ClassOrInterfaceDeclaration clazz) {
+		clazz.addField(Vertx.class, FIELD_NAME_VERTX).addAnnotation(Inject.class);
+		clazz.addField("ApiClient", FIELD_API_CLIENT, Keyword.PRIVATE);
+		clazz.addField("HeaderAuthentication", FIELD_AUTHENTICATION).addAnnotation(Inject.class);
+		clazz.addField("BaseUrlProvider", "urlProvider").addAnnotation(Inject.class);
+	}
+
+	private void constructor(ClassOrInterfaceDeclaration clazz) {
+		clazz.addConstructor(Keyword.PUBLIC).setBody(new BlockStmt(new NodeList<>(new ExpressionStmt(
+				new MethodCallExpr("super", new FieldAccessExpr(new TypeExpr(resourceType), "class"))))));
+	}
+
+	private void createMethod(CompilationUnit cu, ClassOrInterfaceDeclaration clazz, Type createOptionType) {
+		cu.addImport(resource.getQualifier().map(Name::toString).orElse("") + "." + createOptionType);
+		cu.addImport(Creator.class);
+		ClassOrInterfaceType creatorType = new ClassOrInterfaceType(null,
+				new SimpleName(Creator.class.getSimpleName()),
+				new NodeList<>(resourceType, crdType));
+		clazz.addImplementedType(creatorType);
+		MethodDeclaration createMethod = clazz.addMethod("create", Keyword.PUBLIC)
+				.addAnnotation(Override.class)
+				.addParameter(resourceType, "desired")
+				.addParameter(crdType, "primary")
+				.addParameter(contextType, "context")
+				.setType(resourceType);
+		Optional<MethodCallExpr> createCall = methodCalls.create(new NameExpr(FIELD_API_CLIENT),
+				new NodeList<>(new NameExpr("createOption")));
+		AssignExpr assignCreateOpt = new AssignExpr(new VariableDeclarationExpr(createOptionType, "createOption"), new MethodCallExpr(null, "fromResource", new NodeList<>(new NameExpr("primary"), new MethodReferenceExpr(new TypeExpr(createOptionType), new NodeList<>(),"createFromDiscriminatorValue"))),Operator.ASSIGN);
+		ReturnStmt createReturn = createCall
+			.map(m -> new ReturnStmt(m)).orElse(new ReturnStmt(new NullLiteralExpr()));
+		createMethod.setBody(new BlockStmt(new NodeList<>(new ExpressionStmt(assignCreateOpt), createReturn)));
+	}
 	
-		
-		MethodDeclaration fetchResourcesMethod = clazz.addMethod("fetchResources", Keyword.PUBLIC)
-				.addAnnotation(Override.class).addParameter(crdType, "primaryResource").setType(setOfResourceType);
-		setFetchResourcesBody(setType, fetchResourcesMethod);
-		
-		
+	private void updateMethod(CompilationUnit cu, ClassOrInterfaceDeclaration clazz, Type updateOptionType) {
+		cu.addImport(Updater.class);
+		cu.addImport(resource.getQualifier().map(Name::toString).orElse("") + "." + updateOptionType);
+		MethodDeclaration updateMethod = clazz.addMethod("update", Keyword.PUBLIC)
+				.addAnnotation(Override.class)
+				.addParameter(resourceType, "actual")
+				.addParameter(resourceType, "desired")
+				.addParameter(crdType, "primary")
+				.addParameter(contextType, "context")
+				.setType(resourceType);
+		Optional<MethodCallExpr> updateCall = methodCalls.update(new NameExpr(FIELD_API_CLIENT),
+				new NodeList<>(new MethodCallExpr(new MethodCallExpr(new NameExpr("primary"), "getMetadata"),
+						"getName")),
+				new NodeList<>(new NameExpr("editOption")));
+		AssignExpr assignUpdateOpt = new AssignExpr(new VariableDeclarationExpr(updateOptionType, "editOption"), new MethodCallExpr(null, "fromResource", new NodeList<>(new NameExpr("primary"), new MethodReferenceExpr(new TypeExpr(updateOptionType), new NodeList<>(),"createFromDiscriminatorValue"))),Operator.ASSIGN);
+		ReturnStmt updateReturn = updateCall
+				.map(m -> new ReturnStmt(m)).orElse(new ReturnStmt(new NullLiteralExpr()));
+		updateMethod.setBody(new BlockStmt(new NodeList<>(new ExpressionStmt(assignUpdateOpt), updateReturn)));
+	}
+	
+	private void fromResourceMethod(ClassOrInterfaceDeclaration clazz) {
 		ClassOrInterfaceType parsableType = new ClassOrInterfaceType(null, Parsable.class.getSimpleName());
 		ClassOrInterfaceType parsableFactoryType = new ClassOrInterfaceType(null, new SimpleName(ParsableFactory.class.getSimpleName()), new NodeList<>(new TypeParameter("T")));
 		MethodDeclaration fromResource = clazz.addMethod("fromResource", Keyword.PRIVATE)
@@ -208,75 +283,6 @@ public class DependentGen {
 		ReturnStmt parseNodeReturn = new ReturnStmt(new MethodCallExpr(new MethodCallExpr(new NameExpr("parseNode"), "getChildNode", new NodeList<>(new StringLiteralExpr("spec"))), "getObjectValue", new NodeList<>(new NameExpr("parsableFactory"))));
 		fromResource.setBody(new BlockStmt(new NodeList<>(new ExpressionStmt(assignAsJson), new ExpressionStmt(assignParseNode), parseNodeReturn)));
 		
-		ClassOrInterfaceType contextType = new ClassOrInterfaceType(null,
-				new SimpleName(Context.class.getSimpleName()),
-				new NodeList<>(crdType));
-		MethodDeclaration createMethod = clazz.addMethod("create", Keyword.PUBLIC)
-				.addAnnotation(Override.class)
-				.addParameter(resourceType, "desired")
-				.addParameter(crdType, "primary")
-				.addParameter(contextType, "context")
-				.setType(resourceType);
-		Optional<MethodCallExpr> createCall = methodCalls.create(new NameExpr(FIELD_API_CLIENT),
-				new NodeList<>(new NameExpr("createOption")));
-		AssignExpr assignCreateOpt = new AssignExpr(new VariableDeclarationExpr(createOptionType, "createOption"), new MethodCallExpr(null, "fromResource", new NodeList<>(new NameExpr("primary"), new MethodReferenceExpr(new TypeExpr(createOptionType), new NodeList<>(),"createFromDiscriminatorValue"))),Operator.ASSIGN);
-		ReturnStmt createReturn = createCall
-			.map(m -> new ReturnStmt(m)).orElse(new ReturnStmt(new NullLiteralExpr()));
-		createMethod.setBody(new BlockStmt(new NodeList<>(new ExpressionStmt(assignCreateOpt), createReturn)));
-
-		MethodDeclaration updateMethod = clazz.addMethod("update", Keyword.PUBLIC)
-				.addAnnotation(Override.class)
-				.addParameter(resourceType, "actual")
-				.addParameter(resourceType, "desired")
-				.addParameter(crdType, "primary")
-				.addParameter(contextType, "context")
-				.setType(resourceType);
-		Optional<MethodCallExpr> updateCall = methodCalls.update(new NameExpr(FIELD_API_CLIENT),
-				new NodeList<>(new MethodCallExpr(new MethodCallExpr(new NameExpr("primary"), "getMetadata"),
-						"getName")),
-				new NodeList<>(new NameExpr("editOption")));
-		AssignExpr assignUpdateOpt = new AssignExpr(new VariableDeclarationExpr(updateOptionType, "editOption"), new MethodCallExpr(null, "fromResource", new NodeList<>(new NameExpr("primary"), new MethodReferenceExpr(new TypeExpr(updateOptionType), new NodeList<>(),"createFromDiscriminatorValue"))),Operator.ASSIGN);
-		ReturnStmt updateReturn = updateCall
-				.map(m -> new ReturnStmt(m)).orElse(new ReturnStmt(new NullLiteralExpr()));
-		updateMethod.setBody(new BlockStmt(new NodeList<>(new ExpressionStmt(assignUpdateOpt), updateReturn)));
-		
-		
-		/*@Override
-		public void delete(org.operator.gen.v1alpha1.Organization primary,
-				Context<org.operator.gen.v1alpha1.Organization> context) {
-			LOG.info("Deleting {}", primary.getMetadata().getName());
-			try {
-				apiClient.orgs().byOrg(primary.getMetadata().getName()).delete();
-				LOG.info("Done");
-			} catch (ApiException e) {
-				LOG.error("Error deleting resource", e);
-				
-				throw e;
-			}
-		}*/
-		MethodDeclaration deleteMethod = clazz.addMethod("delete", Keyword.PUBLIC)
-				.addAnnotation(Override.class)
-				.addParameter(crdType, "primary")
-				.addParameter(contextType, "context");
-		methodCalls.delete(new NameExpr(FIELD_API_CLIENT),
-				new NodeList<>(new MethodCallExpr(new MethodCallExpr(new NameExpr("primary"), "getMetadata"),
-						"getName")))
-		.ifPresent(m -> deleteMethod.setBody(new BlockStmt(new NodeList<>(new ExpressionStmt(m)))));
-	
-		
-		
-		MethodDeclaration desiredMethod = clazz.addMethod("desired", Keyword.PROTECTED)
-				.addAnnotation(Override.class)
-				.addParameter(crdType, "primary")
-				.addParameter(contextType, "context")
-				.setType(resourceType);
-		desiredMethod.setBody(new BlockStmt(new NodeList<>(new ReturnStmt(new MethodCallExpr(null, "fromResource", new NodeList<>(new NameExpr("primary"), new MethodReferenceExpr(new TypeExpr(resourceType), new NodeList<>(),"createFromDiscriminatorValue")))))));
-	
-		cu.setStorage(path.resolve(String.format("%s/%s.java",
-				name.getQualifier().map(Name::toString).map(n -> n.replace(".", "/")).orElse(""), className)));
-		SourceRoot dest = new SourceRoot(path);
-		dest.add(cu);
-		dest.saveAll();
 	}
 
 	private void setFetchResourcesBody(ClassOrInterfaceType setType, MethodDeclaration fetchResourcesMethod) {

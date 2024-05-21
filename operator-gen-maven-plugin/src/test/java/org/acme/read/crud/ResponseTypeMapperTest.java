@@ -1,4 +1,4 @@
-package org.acme;
+package org.acme.read.crud;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
