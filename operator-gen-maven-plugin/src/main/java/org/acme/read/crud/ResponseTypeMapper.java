@@ -76,6 +76,7 @@ public class ResponseTypeMapper implements CrudMapper {
 				.map(m -> m.getSchema());
 	}
 
+	
 	private Optional<Entry<String, PathItem>> byIdPath(Predicate<Entry<String, PathItem>> filter) {
 		return byIdPaths(filter).stream().findAny();
 	}
@@ -138,15 +139,19 @@ public class ResponseTypeMapper implements CrudMapper {
 
 	@Override
 	public Optional<Entry<String, PathItem>> createPath() {
-		List<String> idPaths = extractPaths(byIdPaths(this::matchGetResponse));
-		return api.getPaths().getPathItems().entrySet().stream().filter(e -> idPaths.contains(e.getKey()))
-				.filter(e -> e.getValue().getPOST() != null).findFirst().or(() -> {
-					List<String> deletePaths = extractPaths(byIdPaths(this::matchPatchResponse));
+		List<String> parentOfIdPaths = parentPaths(byIdPaths(this::matchGetResponse));
+		return api.getPaths().getPathItems().entrySet().stream().filter(e -> parentOfIdPaths.contains(e.getKey()))
+				.filter(e -> e.getValue().getPOST() != null).findFirst()
+				.or(() -> {
+					List<String> parentOfPatchPaths = parentPaths(byIdPaths(this::matchPatchResponse));
 					return api.getPaths().getPathItems().entrySet().stream()
-							.filter(e -> deletePaths.contains(e.getKey())).filter(e -> e.getValue().getPOST() != null)
+							.filter(e -> parentOfPatchPaths.contains(e.getKey())).filter(e -> e.getValue().getPOST() != null)
 							.findAny();
-				});
+				})
+				.or(() -> 
+					api.getPaths().getPathItems().entrySet().stream().filter(this::matchPostResponse).findAny()
 
+				);
 	}
 
 	@Override
@@ -156,7 +161,7 @@ public class ResponseTypeMapper implements CrudMapper {
 		return patchPath.or(() -> deletePath().filter(p -> p.getValue().getPATCH() != null));		
 	}
 
-	private List<String> extractPaths(Collection<Entry<String, PathItem>> paths) {
+	private List<String> parentPaths(Collection<Entry<String, PathItem>> paths) {
 		return paths.stream().map(Entry::getKey).map(this::dropLastPathSegment).toList();
 	}
 
@@ -181,5 +186,14 @@ public class ResponseTypeMapper implements CrudMapper {
 				&& Objects.equals(schema.getRef(), e.getValue().getPATCH().getResponses().getAPIResponse("200")
 						.getContent().getMediaType(getResponseMediaType()).getSchema().getRef());
 	}
+	
+	private boolean matchPostResponse(Entry<String, PathItem> e) {
+		return e.getValue().getPOST() != null && e.getValue().getPOST().getResponses().getAPIResponse("201") != null
+				&& e.getValue().getPOST().getResponses().getAPIResponse("201").getContent()
+						.getMediaType(getResponseMediaType()) != null
+				&& Objects.equals(schema.getRef(), e.getValue().getPOST().getResponses().getAPIResponse("201")
+						.getContent().getMediaType(getResponseMediaType()).getSchema().getRef());
+	}
+	
 
 }
