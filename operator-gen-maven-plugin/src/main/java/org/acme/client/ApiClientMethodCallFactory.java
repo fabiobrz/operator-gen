@@ -11,10 +11,10 @@ public interface ApiClientMethodCallFactory {
 
 	Optional<MethodCallExpr> findById(NameExpr apiClient, NodeList<Expression> args);
 
-	Optional<MethodCallExpr> create(NameExpr apiClient, NodeList<Expression> args);
-
 	Optional<MethodCallExpr> update(NameExpr apiClient, NodeList<Expression> byIdArgs, NodeList<Expression> patchArgs);
 
 	Optional<MethodCallExpr> delete(NameExpr apiClient, NodeList<Expression> byIdArgs);
+
+	Optional<MethodCallExpr> create(NameExpr apiClient, NodeList<Expression> byIdArgs, NodeList<Expression> postArgs);
 
 }

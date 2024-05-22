@@ -236,7 +236,8 @@ public class DependentGen {
 				.addParameter(crdType, "primary")
 				.addParameter(contextType, "context")
 				.setType(resourceType);
-		Optional<MethodCallExpr> createCall = methodCalls.create(new NameExpr(FIELD_API_CLIENT),
+		Optional<MethodCallExpr> createCall = methodCalls.create(new NameExpr(FIELD_API_CLIENT), new NodeList<>(new MethodCallExpr(new MethodCallExpr(new NameExpr("primary"), "getMetadata"),
+				"getName")),
 				new NodeList<>(new NameExpr("createOption")));
 		AssignExpr assignCreateOpt = new AssignExpr(new VariableDeclarationExpr(createOptionType, "createOption"), new MethodCallExpr(null, "fromResource", new NodeList<>(new NameExpr("primary"), new MethodReferenceExpr(new TypeExpr(createOptionType), new NodeList<>(),"createFromDiscriminatorValue"))),Operator.ASSIGN);
 		ReturnStmt createReturn = createCall

@@ -28,11 +28,11 @@ public class KiotaMethodCallFactory implements ApiClientMethodCallFactory {
 	}
 	
 	@Override
-	public Optional<MethodCallExpr> create(NameExpr apiClient, NodeList<Expression> args) {
+	public Optional<MethodCallExpr> create(NameExpr apiClient, NodeList<Expression> byIdArgs, NodeList<Expression> postArgs) {
 		Optional<Entry<String, PathItem>> createPath = mapper.createPath();
 		return createPath
 				.map(Entry::getKey)
-				.map(k -> new MethodCallExpr(toMethodCallExpression(apiClient, k, new NodeList<>()), "post", new NodeList<>(args)));
+				.map(k -> new MethodCallExpr(toMethodCallExpression(apiClient, k, byIdArgs), "post", new NodeList<>(postArgs)));
 	}
 	
 	@Override

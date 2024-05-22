@@ -69,7 +69,7 @@ class KiotaClientNamingTest {
 	void createMethodCall() {
 		Mockito.when(mapper.createPath()).thenReturn(Optional.of(new TestEntry<String,PathItem>("/users", null)));
 		mapper.getByIdPath();
-		Optional<MethodCallExpr> byIdMethodCall = client.create(new NameExpr("client"), new NodeList<>(new NameExpr("createUserOpt")));
+		Optional<MethodCallExpr> byIdMethodCall = client.create(new NameExpr("client"), new NodeList<>(), new NodeList<>(new NameExpr("createUserOpt")));
 		assertTrue(byIdMethodCall.isPresent());
 		assertEquals("client.users().post(createUserOpt)", byIdMethodCall.get().toString());
 	}
