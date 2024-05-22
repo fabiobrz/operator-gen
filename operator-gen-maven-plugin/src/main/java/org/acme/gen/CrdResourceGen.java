@@ -89,8 +89,9 @@ public class CrdResourceGen {
 			JsonNode crtSchema = jsonNodeTree.at(removeLeadingHash(crtSch.getRef()));
 			JsonNode uptSchema = jsonNodeTree.at(removeLeadingHash(uptSch.getRef()));
 			Set<Entry<String, JsonNode>> unionOfFields = unionOfFields(crtSchema.get("properties"), uptSchema.get("properties"));
-			mapSpecProperties(specBuilder, unionOfFields, jsonNodeTree);
-			mapStatusProperties(statusBuilder, unionOfFields, jsonNodeTree);
+			mapProperties(specBuilder, unionOfFields, jsonNodeTree);
+			Set<Entry<String, JsonNode>> fieldsOfNotIn = fieldsOfNotIn(jsonNodeTree.at(removeLeadingHash(mapper.getByIdSchema().getRef())).get("properties"), unionOfFields.stream().map(Entry::getKey).toList());
+			mapProperties(statusBuilder, fieldsOfNotIn, jsonNodeTree);
 		}));
 	}
 	
@@ -102,66 +103,37 @@ public class CrdResourceGen {
 		}
 	}
 
-	private void mapSpecProperties(JSONSchemaPropsBuilder specBuilder, Set<Entry<String, JsonNode>> unionOfFields, JsonNode jsonNodeTree) {
-		mapSpecProperties(specBuilder, unionOfFields, jsonNodeTree, new HashSet<>());
+	private void mapProperties(JSONSchemaPropsBuilder builder, Set<Entry<String, JsonNode>> fields, JsonNode jsonNodeTree) {
+		mapProperties(builder, fields, jsonNodeTree, new HashSet<>());
 	}
 	
-	private void mapSpecProperties(JSONSchemaPropsBuilder specBuilder, Set<Entry<String, JsonNode>> unionOfFields, JsonNode jsonNodeTree, Set<JsonNode> visitedNodes) {
-		mapPrimitiveTypeProps(specBuilder, unionOfFields);
-		mapObjectTypeSpecProps(specBuilder, jsonNodeTree, visitedNodes, unionOfFields);
+	private void mapProperties(JSONSchemaPropsBuilder builder, Set<Entry<String, JsonNode>> fields, JsonNode jsonNodeTree, Set<JsonNode> visitedNodes) {
+		mapPrimitiveTypeProps(builder, fields);
+		mapObjectTypeProps(builder, jsonNodeTree, visitedNodes, fields);
 	}
 	
-	private void mapStatusProperties(JSONSchemaPropsBuilder statusBuilder, Set<Entry<String, JsonNode>> unionOfFields,
-			JsonNode jsonNodeTree) {
-		mapStatusProperties(statusBuilder, unionOfFields, jsonNodeTree, new HashSet<>());
-	}
-	
-	private void mapStatusProperties(JSONSchemaPropsBuilder statusBuilder, Set<Entry<String, JsonNode>> unionOfFields,
-			JsonNode jsonNodeTree, Set<JsonNode> visitedNodes) {
-		Set<Entry<String, JsonNode>> fieldsOfNotIn = fieldsOfNotIn(jsonNodeTree.at(removeLeadingHash(mapper.getByIdSchema().getRef())).get("properties"), unionOfFields.stream().map(Entry::getKey).toList());
-		mapPrimitiveTypeProps(statusBuilder, fieldsOfNotIn);
-		mapObjectTypeStatusProps(statusBuilder, jsonNodeTree, visitedNodes, fieldsOfNotIn);
-	}
-
-	private void mapObjectTypeStatusProps(JSONSchemaPropsBuilder statusBuilder, JsonNode jsonNodeTree,
-			Set<JsonNode> visitedNodes, Set<Entry<String, JsonNode>> fields) {
-		fields.stream()
-			.filter(f -> f.getValue().get("$ref") != null)
-			.forEach(f -> {
-				JsonNode schema = jsonNodeTree.at(removeLeadingHash(f.getValue().get("$ref").asText()));
-				if(!visitedNodes.contains(schema)) {
-					visitedNodes.add(schema);
-					JSONSchemaPropsBuilder objectTypeBuilder = new JSONSchemaPropsBuilder();
-					mapStatusProperties(objectTypeBuilder, fields(schema), jsonNodeTree, visitedNodes);
-					statusBuilder.addToProperties(f.getKey(),
-							objectTypeBuilder.withType("object").build());
-				}
-			});
-	}
-	
-	private void mapObjectTypeSpecProps(JSONSchemaPropsBuilder statusBuilder, JsonNode jsonNodeTree,
-			Set<JsonNode> visitedNodes, Set<Entry<String, JsonNode>> fields) {
-		fields.stream()
-			.filter(f -> f.getValue().get("$ref") != null)
-			.forEach(f -> {
-				JsonNode schema = jsonNodeTree.at(removeLeadingHash(f.getValue().get("$ref").asText()));
-				if(!visitedNodes.contains(schema)) {
-					visitedNodes.add(schema);
-					JSONSchemaPropsBuilder objectTypeBuilder = new JSONSchemaPropsBuilder();
-					mapStatusProperties(objectTypeBuilder, fields(schema), jsonNodeTree, visitedNodes);
-					statusBuilder.addToProperties(f.getKey(),
-							objectTypeBuilder.withType("object").build());
-				}
-			});
-	}
-
 	private void mapPrimitiveTypeProps(JSONSchemaPropsBuilder builder, Set<Entry<String, JsonNode>> fields) {
 		fields.stream()
 			.filter(f -> f.getValue().get("type") != null)
 			.forEach(f -> builder.addToProperties(f.getKey(),
 						new JSONSchemaPropsBuilder().withType(f.getValue().get("type").asText()).build()));
 	}
-		
+	
+	private void mapObjectTypeProps(JSONSchemaPropsBuilder builder, JsonNode jsonNodeTree,
+			Set<JsonNode> visitedNodes, Set<Entry<String, JsonNode>> fields) {
+		fields.stream()
+			.filter(f -> f.getValue().get("$ref") != null)
+			.forEach(f -> {
+				JsonNode schema = jsonNodeTree.at(removeLeadingHash(f.getValue().get("$ref").asText()));
+				if(!visitedNodes.contains(schema)) {
+					visitedNodes.add(schema);
+					JSONSchemaPropsBuilder objectTypeBuilder = new JSONSchemaPropsBuilder();
+					mapProperties(objectTypeBuilder, fields(schema.get("properties")), jsonNodeTree, visitedNodes);
+					builder.addToProperties(f.getKey(),
+							objectTypeBuilder.withType("object").build());
+				}
+			});
+	}	
 
 	private Set<Entry<String, JsonNode>> unionOfFields(JsonNode a, JsonNode b) {
 		Set<Entry<String, JsonNode>> union = new LinkedHashSet<>();
