@@ -25,6 +25,7 @@ import io.fabric8.kubernetes.api.model.apiextensions.v1.CustomResourceDefinition
 import io.fabric8.kubernetes.api.model.apiextensions.v1.CustomResourceDefinitionBuilder;
 import io.fabric8.kubernetes.api.model.apiextensions.v1.CustomResourceDefinitionVersionBuilder;
 import io.fabric8.kubernetes.api.model.apiextensions.v1.JSONSchemaPropsBuilder;
+import io.fabric8.kubernetes.api.model.apiextensions.v1.JSONSchemaPropsOrArrayBuilder;
 import io.fabric8.kubernetes.client.utils.Serialization;
 
 /**
@@ -109,12 +110,35 @@ public class CrdResourceGen {
 	
 	private void mapProperties(JSONSchemaPropsBuilder builder, Set<Entry<String, JsonNode>> fields, JsonNode jsonNodeTree, Set<JsonNode> visitedNodes) {
 		mapPrimitiveTypeProps(builder, fields);
+		mapArrayTypeProps(builder, fields, jsonNodeTree);
 		mapObjectTypeProps(builder, jsonNodeTree, visitedNodes, fields);
+	}
+	
+	private void mapArrayTypeProps(JSONSchemaPropsBuilder builder, Set<Entry<String, JsonNode>> fields, JsonNode jsonNodeTree) {
+		fields.stream()
+			.filter(f -> f.getValue().get("type") != null)
+			.filter(f -> "array".equals(f.getValue().get("type").asText()))
+			.filter(f -> f.getValue().get("items") != null)
+			.forEach(f -> {
+				JSONSchemaPropsBuilder jsonSchemaPropsBuilder = new JSONSchemaPropsBuilder();
+				JSONSchemaPropsBuilder itemPropsBuilder = new JSONSchemaPropsBuilder();
+				if (f.getValue().get("items").get("type") != null) {
+					itemPropsBuilder.withType(f.getValue().get("items").get("type").asText());
+				}
+				if (f.getValue().get("items").get("$ref") != null) {
+					JsonNode schema = jsonNodeTree.at(removeLeadingHash(f.getValue().get("items").get("$ref").asText()));
+					mapProperties(itemPropsBuilder, fields(schema.get("properties")), jsonNodeTree, new HashSet<>());
+					itemPropsBuilder.withType("object");
+				}
+				builder.addToProperties(f.getKey(),
+								jsonSchemaPropsBuilder.withItems(new JSONSchemaPropsOrArrayBuilder().withSchema(itemPropsBuilder.build()).build()).withType(f.getValue().get("type").asText()).build());
+			});
 	}
 	
 	private void mapPrimitiveTypeProps(JSONSchemaPropsBuilder builder, Set<Entry<String, JsonNode>> fields) {
 		fields.stream()
 			.filter(f -> f.getValue().get("type") != null)
+			.filter(f -> !"array".equals(f.getValue().get("type").asText()))
 			.forEach(f -> builder.addToProperties(f.getKey(),
 						new JSONSchemaPropsBuilder().withType(f.getValue().get("type").asText()).build()));
 	}
