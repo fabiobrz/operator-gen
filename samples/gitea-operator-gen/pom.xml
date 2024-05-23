@@ -36,7 +36,7 @@
         <dependency>
             <groupId>io.quarkiverse.kiota</groupId>
             <artifactId>quarkus-kiota</artifactId>
-            <version>0.0.3</version>
+            <version>0.0.5</version>
         </dependency>
         <dependency>
             <groupId>io.quarkiverse.operatorsdk</groupId>
@@ -107,7 +107,7 @@
 	                <artifactId>operator-gen-maven-plugin</artifactId>
 	                <version>1.0-SNAPSHOT</version>
                 	 <configuration>
-			          <schemas>Organization,User</schemas>
+			          <schemas>Organization,User,Repository,Comment</schemas>
 			          <!-- .. .-->
 			        </configuration>
                 </plugin>
