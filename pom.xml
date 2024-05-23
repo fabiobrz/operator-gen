@@ -94,6 +94,20 @@
 
     <modules>
         <module>operator-gen-maven-plugin</module>
-        <module>samples</module>
     </modules>
+
+    <profiles>
+        <profile>
+            <id>samples</id>
+            <activation>
+                <property>
+                    <name>build.samples</name>
+                </property>
+            </activation>
+            <modules>
+                <module>operator-gen-maven-plugin</module>
+                <module>samples</module>
+            </modules>
+        </profile>
+    </profiles>
 </project>
